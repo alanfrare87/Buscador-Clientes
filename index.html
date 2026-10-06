@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador de Clientes</title>
+<meta name="description" content="Consulta de clientes por CNPJ, código ou razão social.">
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#657084;--line:#e4e8ef;--accent:#1f5eff;--accent2:#1748c7}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{background:linear-gradient(135deg,#173b8f,#1f5eff);color:#fff;padding:28px 18px 54px}
+.wrap{max-width:1100px;margin:auto}.brand{font-size:22px;font-weight:800}.sub{opacity:.85;margin-top:5px}
+.searchbox{margin:-30px auto 22px;background:var(--card);border-radius:18px;box-shadow:0 10px 30px #17203318;padding:18px;position:relative}
+.row{display:flex;gap:10px;flex-wrap:wrap}.input{flex:1;min-width:240px;padding:14px 15px;border:1px solid var(--line);border-radius:12px;font-size:16px;outline:none}.input:focus{border-color:var(--accent)}
+button{border:0;border-radius:12px;padding:13px 18px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff}button:hover{background:var(--accent2)}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:12px}.select{padding:11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--text)}
+.status{color:var(--muted);font-size:14px;margin:12px 2px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;padding-bottom:30px}
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 3px 12px #1720330a}
+.name{font-weight:800;font-size:18px;margin-bottom:3px}.fantasia{color:var(--muted);margin-bottom:14px}.label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:12px}.value{font-weight:600;margin-top:3px;word-break:break-word}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.badge{background:#eef3ff;color:#1748c7;padding:5px 8px;border-radius:999px;font-size:12px;font-weight:700}
+.empty{background:#fff;border:1px dashed #ccd3df;border-radius:16px;padding:30px;text-align:center;color:var(--muted)}
+.small{font-size:12px;color:var(--muted)}footer{padding:25px 0 40px;color:var(--muted);font-size:12px}
+@media(max-width:600px){header{padding-bottom:46px}.searchbox{margin:-25px 10px 18px}.wrap{padding:0 10px}.row button{width:100%}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div class="brand">🔎 Buscador de Clientes</div><div class="sub">Consulta rápida por CNPJ, código ou razão social</div></div></header>
+
+<main class="wrap">
+<section class="searchbox">
+  <div class="row">
+    <input id="q" class="input" type="search" placeholder="Digite CNPJ, código, razão social ou nome fantasia..." autocomplete="off">
+    <button id="clear">Limpar</button>
+  </div>
+  <div class="filters">
+    <select id="cluster" class="select"><option value="">Todos os clusters</option></select>
+    <select id="canal" class="select"><option value="">Todos os canais</option></select>
+    <select id="gv" class="select"><option value="">Todos os GV</option></select>
+    <select id="sv" class="select"><option value="">Todos os SV</option></select>
+    <select id="rv" class="select"><option value="">Todos os RV</option></select>
+  </div>
+  <div id="status" class="status">Carregando base...</div>
+</section>
+<section id="results" class="grid"></section>
+<footer>Base carregada a partir de <b>clientes.json</b>. Para uso empresarial, controle o acesso e evite publicar dados pessoais em um repositório público.</footer>
+</main>
+
+<script>
+const fields = {
+  gv:"Codigo GV", sv:"Codigo SV", rv:"Codigo RV", cnpj:"CNPJ",
+  codigo:"Codigo Cliente", pessoa:"nm_pessoa", fantasia:"Nome Fantasia",
+  endereco:"Endereço", cep:"nr_cep", store:"Store Chanel", canal:"CANAL",
+  cluster:"CLUSTER", elegivel:"ELEGIVEL EC", platform:"STORE PLATFORM"
+};
+let data=[], filtered=[];
+
+const q = document.getElementById("q"), results = document.getElementById("results");
+const status = document.getElementById("status");
+const sels = {cluster:document.getElementById("cluster"), canal:document.getElementById("canal"), gv:document.getElementById("gv"), sv:document.getElementById("sv"), rv:document.getElementById("rv")};
+
+function norm(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim()}
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function digits(s){return String(s??"").replace(/\D/g,"")}
+
+function get(r,k){return r[fields[k]] ?? ""}
+
+function unique(k){
+  return [...new Set(data.map(r=>get(r,k)).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR',{numeric:true,sensitivity:'base'}))
+}
+function fillSelect(sel,k){
+  unique(k).forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;sel.appendChild(o)})
+}
+
+function card(r){
+  const cnpj=get(r,"cnpj"), code=get(r,"codigo");
+  return `<article class="card">
+    <div class="name">${esc(get(r,"pessoa") || get(r,"fantasia") || "Cliente sem nome")}</div>
+    <div class="fantasia">${esc(get(r,"fantasia"))}</div>
+    <div class="label">CNPJ</div><div class="value">${esc(cnpj)}</div>
+    <div class="label">Código do cliente</div><div class="value">${esc(code)}</div>
+    <div class="label">Endereço</div><div class="value">${esc(get(r,"endereco"))}${get(r,"cep") ? " — CEP "+esc(get(r,"cep")) : ""}</div>
+    <div class="badges">
+      ${get(r,"gv")?`<span class="badge">GV: ${esc(get(r,"gv"))}</span>`:""}
+      ${get(r,"sv")?`<span class="badge">SV: ${esc(get(r,"sv"))}</span>`:""}
+      ${get(r,"rv")?`<span class="badge">RV: ${esc(get(r,"rv"))}</span>`:""}
+      ${get(r,"cluster")?`<span class="badge">Cluster: ${esc(get(r,"cluster"))}</span>`:""}
+      ${get(r,"canal")?`<span class="badge">Canal: ${esc(get(r,"canal"))}</span>`:""}
+    </div>
+    <div class="label">Store Channel</div><div class="value">${esc(get(r,"store"))}</div>
+    <div class="label">Elegível EC</div><div class="value">${esc(get(r,"elegivel"))}</div>
+    <div class="label">Store Platform</div><div class="value">${esc(get(r,"platform"))}</div>
+  </article>`
+}
+
+function apply(){
+  const term=norm(q.value), td=digits(q.value);
+  filtered=data.filter(r=>{
+    const blob=norm([get(r,"cnpj"),get(r,"codigo"),get(r,"pessoa"),get(r,"fantasia"),get(r,"endereco")].join(" "));
+    const numeric=digits([get(r,"cnpj"),get(r,"codigo")].join(" "));
+    return (!term || blob.includes(term) || (td && numeric.includes(td))) &&
+      (!sels.cluster.value || get(r,"cluster")===sels.cluster.value) &&
+      (!sels.canal.value || get(r,"canal")===sels.canal.value) &&
+      (!sels.gv.value || get(r,"gv")===sels.gv.value) &&
+      (!sels.sv.value || get(r,"sv")===sels.sv.value) &&
+      (!sels.rv.value || get(r,"rv")===sels.rv.value);
+  });
+  // evita renderizar milhares de cards de uma vez
+  const shown=filtered.slice(0,100);
+  results.innerHTML=shown.length ? shown.map(card).join("") : `<div class="empty">Nenhum cliente encontrado.</div>`;
+  status.textContent=`${filtered.length.toLocaleString("pt-BR")} cliente(s) encontrado(s)`+(filtered.length>100?" — mostrando os primeiros 100.":"");
+}
+
+fetch("data/clientes.json")
+ .then(r=>r.json())
+ .then(d=>{
+   data=d;
+   fillSelect(sels.cluster,"cluster");fillSelect(sels.canal,"canal");fillSelect(sels.gv,"gv");fillSelect(sels.sv,"sv");fillSelect(sels.rv,"rv");
+   status.textContent=`Base carregada: ${data.length.toLocaleString("pt-BR")} clientes`;
+   apply();
+ })
+ .catch(e=>{status.textContent="Não foi possível carregar a base de clientes.";results.innerHTML='<div class="empty">Verifique se o arquivo data/clientes.json foi publicado junto com o site.</div>'});
+
+q.addEventListener("input",apply);
+Object.values(sels).forEach(s=>s.addEventListener("change",apply));
+document.getElementById("clear").addEventListener("click",()=>{q.value="";Object.values(sels).forEach(s=>s.value="");apply();q.focus()});
+</script>
+</body>
+</html>
